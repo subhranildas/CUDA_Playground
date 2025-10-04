@@ -2,3 +2,5 @@
 *.obj
 build/
 .vscode/
+x64/
+**/.vs/

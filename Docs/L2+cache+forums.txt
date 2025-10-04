@@ -1,0 +1,44 @@
+Lanl
+wxiT_H7YkdM4bb*
+
+https://forums.developer.nvidia.com/t/about-l2-cache-hit-rate-across-kernels/193126
+https://forums.developer.nvidia.com/t/l1-and-l2-cache-hit-rate/32799
+nv-nsight-cu-cli  --section Occupancy --section MemoryWorkloadAnalysis ./2mm.out 
+https://www.nvidia.com/gtc/session-catalog/?tab.catalogallsessionstab=16566177511100015Kus&search=performance#/
+
+
+NVidia's courses
+https://www.nvidia.com/en-us/training/online/
+
+
+NCCL for deep learning
+https://www.nvidia.com/en-us/on-demand/session/gtcspring23-s51111/
+
+
+GET3D: A Generative Model of High Quality 3D Textured Shapes Learned from Images
+https://research.nvidia.com/labs/toronto-ai/GET3D/
+https://research.nvidia.com/labs/dir/magic3d/
+https://github.com/yu-takagi/StableDiffusionReconstruction
+
+
+NVIDIA Omniverse AI Based Texture + Material Generation
+https://blogs.nvidia.com/blog/siggraph-research-generative-ai-materials-3d-scenes/
+https://youtu.be/3qSQjRaseos
+
+
+Deploy a Deep Learning Model from the Cloud to the Edge (Presented by Domino Data Lab)
+https://www.nvidia.com/en-us/on-demand/session/gtcspring23-s52424/
+
+
+XLA (Accelerated Linear Algebra) is an open-source machine learning (ML) compiler for GPUs, CPUs, and ML accelerators.
+https://github.com/openxla/xla
+
+
+How to implement parallelism using JAX + XLA?
+https://www.nvidia.com/en-us/on-demand/session/gtcspring23-s51800/
+
+
+
+
+
+

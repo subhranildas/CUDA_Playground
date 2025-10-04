@@ -1,13 +1,15 @@
-#include <iostream>
-using namespace std;
+#include <cuda_runtime.h>
+#include <device_launch_parameters.h>
+
+#include <stdio.h>
+
+__global__ void test01(void)
+{
+	printf("\nBlock ID: %d --- Thread ID : %d", blockIdx.x, threadIdx.x);
+}
 
 int main()
 {
-	cout << "Hello World" << endl;
-	int x = 10;
-	int *ptr = &x;
-	cout << "Address of x:" << ptr << endl;
-	cout << "Value of x:" << *ptr << endl;
-
+	test01<<<1, 8>>>();
 	return 0;
 }
