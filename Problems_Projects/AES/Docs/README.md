@@ -9,178 +9,103 @@ AES is a symmetric‑key block cipher standardized by NIST.
 - **Key sizes** → 128, 192, or 256 bits.
 - **Widely used** in HTTPS, VPNs, disk encryption, secure messaging, etc.
 
-AES is fast, secure, and hardware‑accelerated on most CPUs and GPUs.
+# AES — CODE Directory (Quick Guide)
 
-## AES Structure at a Glance
+This document describes the `CODE/` folder in this project, how to build and run the AES reference and CUDA implementations, and how to run the unit tests.
 
-AES is built from repeated **Rounds** of transformations applied to a 16‑byte state.
+**Location:** `Problems_Projects/AES/CODE`
 
-- AES‑128 = 10 rounds
-- AES‑192 = 12 rounds
-- AES‑256 = 14 rounds
+**Purpose:** reference CPU AES implementation, CUDA AES kernels (ECB), and a small test harness.
 
-Each round transforms the internal 4×4 byte matrix using:
+**Contents (high level)**
 
-- **SubBytes** – Nonlinear substitution using S‑box
-- **ShiftRows** – Circular shifts of each row
-- **MixColumns** – Mixes each column using finite‑field math
-- **AddRoundKey** – XOR with round key
+- `include/` — public headers (`aes.h`, `utils.h`, `kernels.h`, `aes_test.h`)
+- `src/` — implementation sources (`aes_cpu.cpp`, `aes_gpu.cu`, `utils.cpp`, `main.cu`)
+- `tests/` — test harness and `Makefile` for running unit tests
+- `Makefile`, `sources.mk` — top-level build and source list
 
-> The **final round** does **not** have MixColumns.
+---
 
-## Data Representation
+**Quick Start — Build & Run**
 
-AES stores the 16‑byte block in a 4×4 matrix (called the “state”), column‑major:
+From the project AES `CODE` folder run:
 
 ```bash
-s0  s4  s8  s12
-s1  s5  s9  s13
-s2  s6  s10 s14
-s3  s7  s11 s15
+cd Problems_Projects/AES/CODE
+make all      # builds and runs the example target (build/out or build/out.exe)
 ```
 
-## AES Main Steps
-
-### SubBytes
-
-Each byte is replaced with a value from a **fixed 256‑byte lookup table** (the S‑box).
-The S‑box is derived mathematically and provides resistance against attacks.
-
-### ShiftRows
-
-Each row is rotated:
-
-- Row 0 → no shift
-- Row 1 → shift left by 1
-- Row 2 → shift left by 2
-- Row 3 → shift left by 3
-
-### MixColumns
-
-Each column is transformed using matrix multiplication in GF(2⁸):
-
-```
-[02 03 01 01]   [s0 ]
-[01 02 03 01] * [s1 ]
-[01 01 02 03]   [s2 ]
-[03 01 01 02]   [s3 ]
-```
-
-(These multiplications use bitwise operations, not standard integer math.)
-
-### AddRoundKey
-
-Each byte in the state is XORed with one byte from the expanded round key.
-
----
-
-## Key Expansion (Key Schedule)
-
-AES doesn’t use the same key for each round.
-Instead, it expands the key into multiple round keys using:
-
-- **RotWord** – rotate bytes
-- **SubWord** – apply S‑box
-- **Rcon** – round constant XOR
-- Operations differ slightly across 128/192/256‑bit versions.
-
-AES‑128 key expansion outputs **11 round keys** (for 10 rounds + initial).
-
----
-
-## Full AES‑128 Encryption Process
+If you only want to compile:
 
 ```bash
-Input (16 bytes)
-        ↓
-AddRoundKey (Round 0)
-        ↓
-Round 1:
-    SubBytes → ShiftRows → MixColumns → AddRoundKey
-Round 2:
-    SubBytes → ShiftRows → MixColumns → AddRoundKey
-...
-Round 9:
-    SubBytes → ShiftRows → MixColumns → AddRoundKey
-Round 10 (Final):
-    SubBytes → ShiftRows → AddRoundKey  (no MixColumns)
-        ↓
-Ciphertext (16 bytes)
+make compile
 ```
 
----
+Clean up build artifacts:
 
-## AES Modes of Operation
+```bash
+make clean    # remove objects + executable
+make scrub    # remove entire build/ directory
+```
 
-AES by itself only encrypts 16 bytes.
-Modes allow encryption of arbitrary-length data:
+Notes:
 
-- **ECB** – insecure, do NOT use
-- **CBC** – classic mode (requires IV)
-- **CTR** – counter mode, parallelizable (good for GPU)
-- **GCM** – authenticated encryption (AEAD), modern and widely used
-- **XTS** – disk encryption
-
-For GPU projects, **CTR is the easiest** because each block is independent.
+- Building GPU code requires the CUDA toolkit (`nvcc`). On Windows, `nvcc` may invoke MSVC; ensure Visual Studio Build Tools are available.
 
 ---
 
-## Why AES is Good for GPUs
+**Running Unit Tests**
 
-AES is great for GPU acceleration because:
+Tests are under `CODE/tests/` and have a separate Makefile. They validate AES-ECB using known vectors and multi-block round-trips.
 
-- Each block is 16 bytes → each block fits perfectly in registers
-- CTR mode → each block processed independently
-- S‑boxes can be stored in shared/constant memory
-- Thousands of threads can run one block each
-- Good memory‑to-compute ratio
+Build and run tests:
 
-GPU AES can achieve **10×–20× speedups** depending on the mode and device.
+```bash
+cd Problems_Projects/AES/CODE/tests
+make all
+make run
+# or ./build/tests_out(.exe)
+```
 
----
+The tests compile CUDA sources with `nvcc` and C++ tests with `g++` by default. The `tests/Makefile` handles Windows `.obj` object extensions so `nvcc`/MSVC behave cleanly.
 
-## Implementation Steps
-
-1. **CPU reference implementation**
-   – Ensures correctness before touching GPU code.
-
-2. **AES‑CTR mode (recommended)**
-   – Parallelizable, fast.
-
-3. **Device functions for**
-
-   - SubBytes (S‑box lookup)
-   - ShiftRows
-   - MixColumns
-   - AddRoundKey
-   - Key schedule (host-side, usually)
-
-4. **Kernel design**
-
-   - Each thread handles one AES block (16 bytes)
-   - Counter block generation per thread
-   - XOR with plaintext for CTR mode
-
-5. **Validation**
-
-   - Compare CPU vs GPU outputs for multiple test vectors.
-
-6. **Optimization**
-   - S‑box + inverse S‑box in shared memory
-   - Use constant memory for round keys
-   - Unroll loops
-   - Avoid branching
-   - Experiment with warp‑level primitives
+To run CPU-only tests: remove `../src/aes_gpu.cu` from `tests/sources.mk` (or edit the `tests/Makefile`) and rebuild.
 
 ---
 
-## 10. Next Steps
+**Public API (in `include/aes.h`)**
 
-If you want, we can continue with:
+High-level functions you can call from other code:
 
-- A) **CPU AES‑128 reference implementation (C)**
-- B) **CUDA AES‑CTR implementation**
-- C) **Project folder + build system + test vectors**
-- D) **GPU optimization plan**
+- `aes_error_te aes_encrypt_ecb(...)` — CPU ECB encrypt (block-aligned input required)
+- `aes_error_te aes_decrypt_ecb(...)` — CPU ECB decrypt
+- `aes_error_te aes_encrypt_ecb_cuda(...)` — GPU ECB encrypt wrapper
+- `aes_error_te aes_decrypt_ecb_cuda(...)` — GPU ECB decrypt wrapper
 
-Tell me which step you want next.
+Error codes: `AES_SUCCESS`, `AES_ERROR_UNSUPPORTED_KEY_SIZE`, `AES_ERROR_MEMORY_ALLOCATION_FAILED`, `AES_ERROR_CUDA_FAILURE`, `AES_ERROR_INVALID_INPUT_LENGTH`.
+
+See `include/aes.h` for full function signatures.
+
+---
+
+**Implementation notes**
+
+- `aes_cpu.cpp` contains a straightforward, readable AES implementation used as the correctness reference.
+- `aes_gpu.cu` contains device functions and kernels for AES encrypt/decrypt (ECB), plus host wrappers that expand keys on the host and launch the kernels.
+- `main.cu` demonstrates a round-trip: encrypt then decrypt using the CUDA wrappers.
+
+Security note: ECB mode is insecure for most uses — this project uses ECB for simple testing and correctness verification. For real workloads, prefer `CTR`, `GCM` or authenticated modes.
+
+---
+
+**Troubleshooting**
+
+- nvcc errors: confirm CUDA toolkit is installed and `nvcc` is on PATH. On Windows ensure Visual Studio Build Tools are available.
+- Linker errors: make sure `sources.mk` is included by `Makefile` (it is in this project). If you change linkage or add files, run `make clean` before rebuilding.
+- If tests fail, run the CPU AES reference (`aes_encrypt_ecb`, `aes_decrypt_ecb`) to isolate whether the issue is in the CUDA path or the reference implementation.
+
+---
+
+**Adding test vectors**
+
+- Add new test cases to `CODE/tests/src/test_aes_ecb.cpp`. The tests use known-answer vectors (KATs) and multi-block round-trips.

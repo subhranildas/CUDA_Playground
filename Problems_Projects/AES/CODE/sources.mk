@@ -7,10 +7,9 @@
 # ------------------------------------------------------------------------------
 
 SRCS = src/main.cu \
-       src/cpu_kernels.cpp \
-	   src/gpu_kernels.cu \
-       src/utils.cpp \
-	   src/aes.cpp
+	src/aes_cpu.cpp \
+	src/aes_gpu.cu \
+	src/utils.cpp
 
 # ------------------------------------------------------------------------------
 # Header files (optional, for dependency tracking or IDE support)
@@ -18,4 +17,5 @@ SRCS = src/main.cu \
 HEADERS = \
 	include/kernels.h \
 	include/utils.h \
-	include/aes.h
+	include/aes.h \
+	include/aes_test.h
