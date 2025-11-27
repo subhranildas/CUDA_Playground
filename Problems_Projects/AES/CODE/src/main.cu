@@ -3,94 +3,129 @@
 #include "aes.h"
 #include <cstdio>
 #include <cstring>
+#include <chrono>
 
-// const uint8_t key128[16] = {
-//     0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6,
-//     0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf, 0x4f, 0x3c};
+/* =============================================================================
+ * Benchmark AES-128 ECB encryption on large multi-block plaintext.
+ * Compares CPU vs GPU performance for various data sizes.
+ * ============================================================================ */
 
-// const uint8_t key192[24] = {
-//     0x8e, 0x73, 0xb0, 0xf7, 0xda, 0x0e, 0x64, 0x52,
-//     0xc8, 0x10, 0xf3, 0x2b, 0x80, 0x90, 0x79, 0xe5,
-//     0x62, 0xf8, 0xea, 0xd2, 0x52, 0x2c, 0x6b, 0x7b};
-
-// const uint8_t key256[32] = {
-//     0x60, 0x3d, 0xeb, 0x10, 0x15, 0xca, 0x71, 0xbe,
-//     0x2b, 0x73, 0xae, 0xf0, 0x85, 0x7d, 0x77, 0x81,
-//     0x1f, 0x35, 0x2c, 0x07, 0x3b, 0x61, 0x08, 0xd7,
-//     0x2d, 0x98, 0x10, 0xa3, 0x09, 0x14, 0xdf, 0xf4};
-
-// const uint8_t plaintext[16] = {
-//     0x32, 0x43, 0xf6, 0xa8, 0x88, 0x5a, 0x30, 0x8d,
-//     0x31, 0x31, 0x98, 0xa2, 0xe0, 0x37, 0x07, 0x34};
-
-// const uint8_t expected_cipher[16] = {
-//     0x39, 0x25, 0x84, 0x1d, 0x02, 0xdc, 0x09, 0xfb,
-//     0xdc, 0x11, 0x85, 0x97, 0x19, 0x6a, 0x0b, 0x32};
-
-/* Simple host test: use GPU AES ECB encrypt for multiple blocks and verify via CPU decrypt */
 int main(int argc, char **argv)
 {
 	(void)argc;
 	(void)argv;
 
-	const size_t blocks = 1;
-	const size_t len = blocks * AES_BLOCK_SIZE;
-
-	/* Example AES-128 key (same as tests) */
+	/* AES-128 key */
 	const uint8_t key128[16] = {
 		0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6,
 		0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf, 0x4f, 0x3c};
 
-	const uint8_t plaintext[16] = {
-		0x32, 0x43, 0xf6, 0xa8, 0x88, 0x5a, 0x30, 0x8d,
-		0x31, 0x31, 0x98, 0xa2, 0xe0, 0x37, 0x07, 0x34};
+	printf("========================================\n");
+	printf("  AES-128 ECB CPU vs GPU Benchmark\n");
+	printf("========================================\n\n");
 
-	const uint8_t expected_cipher[16] = {
-		0x39, 0x25, 0x84, 0x1d, 0x02, 0xdc, 0x09, 0xfb,
-		0xdc, 0x11, 0x85, 0x97, 0x19, 0x6a, 0x0b, 0x32};
+	/* Test different data sizes */
+	const size_t test_sizes[] = {
+		1024,			  /* 1 KB (64 blocks) */
+		10 * 1024,		  /* 10 KB (640 blocks) */
+		100 * 1024,		  /* 100 KB (6400 blocks) */
+		1024 * 1024,	  /* 1 MB (65536 blocks) */
+		10 * 1024 * 1024, /* 10 MB (655360 blocks) */
+		100 * 1024 * 1024 /* 100 MB (6553600 blocks) */
+	};
+	const int num_sizes = sizeof(test_sizes) / sizeof(test_sizes[0]);
 
-	// uint8_t plaintext[len];
-	uint8_t ciphertext[len];
-	uint8_t decrypted[len];
-
-	// for (size_t i = 0; i < len; ++i)
-	// 	plaintext[i] = (uint8_t)(i & 0xFF);
-
-	/* Call GPU encrypt helper */
-	aes_error_te err = aes_encrypt_ecb_cuda(plaintext, len, ciphertext, key128,
-											AES_KEY_SIZE_128);
-	if (err != AES_SUCCESS)
+	for (int size_idx = 0; size_idx < num_sizes; ++size_idx)
 	{
-		printf("GPU encryption failed (err=%d)\n", (int)err);
-		return 1;
+		const size_t data_size = test_sizes[size_idx];
+		const size_t num_blocks = data_size / AES_BLOCK_SIZE;
+
+		printf("Test size: %zu bytes (%zu blocks)\n", data_size, num_blocks);
+
+		/* Allocate buffers */
+		uint8_t *plaintext = (uint8_t *)malloc(data_size);
+		uint8_t *cpu_ciphertext = (uint8_t *)malloc(data_size);
+		uint8_t *gpu_ciphertext = (uint8_t *)malloc(data_size);
+
+		if (!plaintext || !cpu_ciphertext || !gpu_ciphertext)
+		{
+			printf("  Memory allocation failed\n");
+			free(plaintext);
+			free(cpu_ciphertext);
+			free(gpu_ciphertext);
+			return 1;
+		}
+
+		/* Fill plaintext with pattern */
+		for (size_t i = 0; i < data_size; ++i)
+		{
+			plaintext[i] = (uint8_t)(i & 0xFF);
+		}
+
+		/* CPU Benchmark */
+		auto cpu_start = std::chrono::high_resolution_clock::now();
+		aes_error_te cpu_err = aes_encrypt_ecb(plaintext, data_size, cpu_ciphertext,
+											   key128, AES_KEY_SIZE_128);
+		auto cpu_end = std::chrono::high_resolution_clock::now();
+		auto cpu_duration = std::chrono::duration_cast<std::chrono::milliseconds>(
+			cpu_end - cpu_start);
+
+		if (cpu_err != AES_SUCCESS)
+		{
+			printf("  CPU encryption failed (err=%d)\n", (int)cpu_err);
+			free(plaintext);
+			free(cpu_ciphertext);
+			free(gpu_ciphertext);
+			return 1;
+		}
+
+		/* GPU Benchmark */
+		auto gpu_start = std::chrono::high_resolution_clock::now();
+		aes_error_te gpu_err = aes_encrypt_ecb_cuda(plaintext, data_size, gpu_ciphertext,
+													key128, AES_KEY_SIZE_128);
+		auto gpu_end = std::chrono::high_resolution_clock::now();
+		auto gpu_duration = std::chrono::duration_cast<std::chrono::milliseconds>(
+			gpu_end - gpu_start);
+
+		if (gpu_err != AES_SUCCESS)
+		{
+			printf("  GPU encryption failed (err=%d)\n", (int)gpu_err);
+			free(plaintext);
+			free(cpu_ciphertext);
+			free(gpu_ciphertext);
+			return 1;
+		}
+
+		/* Verify CPU and GPU produce same result */
+		bool match = (memcmp(cpu_ciphertext, gpu_ciphertext, data_size) == 0);
+
+		/* Calculate throughput (MB/s) */
+		double cpu_throughput = (data_size / (1024.0 * 1024.0)) / (cpu_duration.count() / 1000.0);
+		double gpu_throughput = (data_size / (1024.0 * 1024.0)) / (gpu_duration.count() / 1000.0);
+		double speedup = (double)cpu_duration.count() / gpu_duration.count();
+
+		printf("  CPU time: %lld ms (%.2f MB/s)\n", (long long)cpu_duration.count(), cpu_throughput);
+		printf("  GPU time: %lld ms (%.2f MB/s)\n", (long long)gpu_duration.count(), gpu_throughput);
+		printf("  Speedup:  %.2fx\n", speedup);
+		printf("  Match:    %s\n\n", match ? "YES" : "NO");
+
+		if (!match)
+		{
+			printf("  ERROR: CPU and GPU results don't match!\n");
+			free(plaintext);
+			free(cpu_ciphertext);
+			free(gpu_ciphertext);
+			return 1;
+		}
+
+		free(plaintext);
+		free(cpu_ciphertext);
+		free(gpu_ciphertext);
 	}
 
-	if (memcmp(ciphertext, expected_cipher, AES_BLOCK_SIZE) == 0)
-	{
-		printf("GPU AES-ECB single-block encryption PASSED\n");
-	}
-	else
-	{
-		printf("GPU AES-ECB single-block encryption FAILED\n");
-		return 4;
-	}
+	printf("========================================\n");
+	printf("  Benchmark Complete\n");
+	printf("========================================\n");
 
-	/* Decrypt on GPU and verify */
-	err = aes_decrypt_ecb_cuda(ciphertext, len, decrypted, key128, AES_KEY_SIZE_128);
-	if (err != AES_SUCCESS)
-	{
-		printf("GPU decryption failed (err=%d)\n", (int)err);
-		return 2;
-	}
-
-	if (memcmp(plaintext, decrypted, len) == 0)
-	{
-		printf("GPU AES-ECB multi-block round-trip PASSED\n");
-		return 0;
-	}
-	else
-	{
-		printf("GPU AES-ECB multi-block round-trip FAILED\n");
-		return 3;
-	}
+	return 0;
 }

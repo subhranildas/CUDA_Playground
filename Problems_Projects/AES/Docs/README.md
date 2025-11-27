@@ -54,6 +54,199 @@ Notes:
 
 ---
 
+## Running the Application (Benchmarks)
+
+The main application (`main.cu`) runs AES-128 ECB benchmarks comparing CPU vs GPU performance on various data sizes.
+
+### Step-by-Step Instructions
+
+**1. From the CODE directory, clean previous builds:**
+
+```bash
+cd Problems_Projects/AES/CODE
+make clean
+```
+
+**2. Build the application:**
+
+```bash
+make all
+```
+
+This compiles all sources and runs the benchmark. The output will show:
+
+- CPU and GPU encryption times for each data size
+- Throughput (MB/s) for both implementations
+- Speedup factor (CPU time / GPU time)
+- Verification that results match
+
+**3. Run the compiled executable directly:**
+
+```bash
+./build/out.exe        # Windows/MSVC
+# or
+./build/out            # Linux/GCC
+```
+
+**4. Benchmark test sizes include:**
+
+- 1 KB (64 blocks)
+- 10 KB (640 blocks)
+- 100 KB (6400 blocks)
+- 1 MB (65536 blocks)
+- 10 MB (655360 blocks)
+- **100 MB (6553600 blocks)**
+
+**Expected output format:**
+
+```
+========================================
+  AES-128 ECB CPU vs GPU Benchmark
+========================================
+
+Test size: 104857600 bytes (6553600 blocks)
+  CPU time: 11300 ms (8.85 MB/s)
+  GPU time: 296 ms (337.84 MB/s)
+  Speedup:  38.18x
+  Match:    YES
+```
+
+---
+
+## Running Unit Tests
+
+The `tests/` folder contains comprehensive CPU and GPU unit tests for AES-ECB.
+
+### Step-by-Step Instructions
+
+**1. Navigate to the tests directory:**
+
+```bash
+cd Problems_Projects/AES/CODE/tests
+```
+
+**2. Clean previous test builds:**
+
+```bash
+make clean
+```
+
+**3. Build the test suite:**
+
+```bash
+make all
+```
+
+This compiles and links all test sources (CPU tests from `test_aes_ecb.cpp` and GPU tests from `test_aes_ecb_gpu.cu`).
+
+**4. Run the tests:**
+
+```bash
+make run
+```
+
+Or run the compiled executable directly:
+
+```bash
+./build/tests_out.exe   # Windows/MSVC
+# or
+./build/tests_out       # Linux/GCC
+```
+
+**5. Expected test output:**
+
+Both CPU and GPU tests run together and verify:
+
+- AES-128 single-block known-answer tests (FIPS-197 vectors)
+- AES-128 multi-block round-trip tests (4 blocks = 64 bytes)
+- AES-192 multi-block round-trip tests
+- AES-256 multi-block round-trip tests
+
+```
+========================================
+   AES ECB CPU & GPU Test Suite
+========================================
+
+========== CPU AES ECB Tests ==========
+[CPU] AES-128 single-block round-trip PASSED
+[CPU] AES-128 multi-block round-trip PASSED
+[CPU] AES-192 multi-block round-trip PASSED
+[CPU] AES-256 multi-block round-trip PASSED
+=======================================
+
+========== GPU AES ECB Tests ==========
+[GPU] AES-128 single-block round-trip PASSED
+[GPU] AES-128 multi-block round-trip PASSED
+[GPU] AES-192 multi-block round-trip PASSED
+[GPU] AES-256 multi-block round-trip PASSED
+=======================================
+
+All AES ECB CPU & GPU tests PASSED
+```
+
+**6. Build CPU-only tests (without GPU):**
+
+To test only the CPU implementation:
+
+```bash
+# Edit tests/sources.mk and remove the line: src/test_aes_ecb_gpu.cu
+nano tests/sources.mk   # remove GPU test file from TEST_SRCS
+make clean && make all
+```
+
+---
+
+## Common Build Commands Reference
+
+From `CODE/` directory:
+
+| Command        | Purpose                          |
+| -------------- | -------------------------------- |
+| `make all`     | Build and run the main benchmark |
+| `make compile` | Compile without running          |
+| `make clean`   | Remove objects and executable    |
+| `make scrub`   | Remove entire build directory    |
+| `make run`     | Run the compiled executable      |
+
+From `CODE/tests/` directory:
+
+| Command        | Purpose                            |
+| -------------- | ---------------------------------- |
+| `make all`     | Build and run tests                |
+| `make compile` | Compile test sources only          |
+| `make clean`   | Remove test objects and executable |
+| `make run`     | Run the test executable            |
+
+---
+
+**Quick Start — Build & Run**
+
+From the project AES `CODE` folder run:
+
+```bash
+cd Problems_Projects/AES/CODE
+make all      # builds and runs the example target (build/out or build/out.exe)
+```
+
+If you only want to compile:
+
+```bash
+make compile
+```
+
+Clean up build artifacts:
+
+```bash
+make clean    # remove objects + executable
+make scrub    # remove entire build/ directory
+```
+
+Notes:
+
+- Building GPU code requires the CUDA toolkit (`nvcc`). On Windows, `nvcc` may invoke MSVC; ensure Visual Studio Build Tools are available.
+
+---
+
 **Running Unit Tests**
 
 Tests are under `CODE/tests/` and have a separate Makefile. They validate AES-ECB using known vectors and multi-block round-trips.
@@ -95,17 +288,3 @@ See `include/aes.h` for full function signatures.
 - `main.cu` demonstrates a round-trip: encrypt then decrypt using the CUDA wrappers.
 
 Security note: ECB mode is insecure for most uses — this project uses ECB for simple testing and correctness verification. For real workloads, prefer `CTR`, `GCM` or authenticated modes.
-
----
-
-**Troubleshooting**
-
-- nvcc errors: confirm CUDA toolkit is installed and `nvcc` is on PATH. On Windows ensure Visual Studio Build Tools are available.
-- Linker errors: make sure `sources.mk` is included by `Makefile` (it is in this project). If you change linkage or add files, run `make clean` before rebuilding.
-- If tests fail, run the CPU AES reference (`aes_encrypt_ecb`, `aes_decrypt_ecb`) to isolate whether the issue is in the CUDA path or the reference implementation.
-
----
-
-**Adding test vectors**
-
-- Add new test cases to `CODE/tests/src/test_aes_ecb.cpp`. The tests use known-answer vectors (KATs) and multi-block round-trips.

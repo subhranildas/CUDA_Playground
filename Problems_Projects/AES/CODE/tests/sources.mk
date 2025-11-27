@@ -3,6 +3,7 @@
 # Kept for backwards compatibility with older workflows.
 TEST_SRCS = \
     src/test_aes_ecb.cpp \
+    src/test_aes_ecb_gpu.cu \
     src/main.cu \
     ../src/aes_cpu.cpp \
     ../src/aes_gpu.cu \

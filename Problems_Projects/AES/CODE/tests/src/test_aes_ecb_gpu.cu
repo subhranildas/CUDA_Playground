@@ -1,0 +1,300 @@
+/* =============================================================================
+ * test_aes_ecb_gpu.cu
+ *
+ * GPU-based AES ECB test cases mirroring test_aes_ecb.cpp.
+ *
+ * This file contains unit tests for GPU AES implementations:
+ *   - Single-block known-answer test for AES-128
+ *   - Multi-block round-trip tests for AES-128/192/256
+ *
+ * Tests verify correctness by:
+ *   1. Using known plaintext and expected ciphertext vectors
+ *   2. Validating encrypt/decrypt round-trips
+ *   3. Comparing GPU and CPU results where applicable
+ * ============================================================================ */
+
+#include "aes.h"
+#include <cstdio>
+#include <cstring>
+
+/* AES-128 Known Answer Test (same vectors as CPU tests) */
+static const uint8_t key128[16] = {
+	0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6,
+	0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf, 0x4f, 0x3c};
+
+static const uint8_t key192[24] = {
+	0x8e, 0x73, 0xb0, 0xf7, 0xda, 0x0e, 0x64, 0x52,
+	0xc8, 0x10, 0xf3, 0x2b, 0x80, 0x90, 0x79, 0xe5,
+	0x62, 0xf8, 0xea, 0xd2, 0x52, 0x2c, 0x6b, 0x7b};
+
+static const uint8_t key256[32] = {
+	0x60, 0x3d, 0xeb, 0x10, 0x15, 0xca, 0x71, 0xbe,
+	0x2b, 0x73, 0xae, 0xf0, 0x85, 0x7d, 0x77, 0x81,
+	0x1f, 0x35, 0x2c, 0x07, 0x3b, 0x61, 0x08, 0xd7,
+	0x2d, 0x98, 0x10, 0xa3, 0x09, 0x14, 0xdf, 0xf4};
+
+static const uint8_t plaintext[16] = {
+	0x32, 0x43, 0xf6, 0xa8, 0x88, 0x5a, 0x30, 0x8d,
+	0x31, 0x31, 0x98, 0xa2, 0xe0, 0x37, 0x07, 0x34};
+
+static const uint8_t expected_cipher[16] = {
+	0x39, 0x25, 0x84, 0x1d, 0x02, 0xdc, 0x09, 0xfb,
+	0xdc, 0x11, 0x85, 0x97, 0x19, 0x6a, 0x0b, 0x32};
+
+/* =============================================================================
+ * print_hex()
+ *
+ * Print a buffer as a sequence of hexadecimal bytes.
+ * ============================================================================ */
+static void print_hex(const uint8_t *buf, size_t len)
+{
+	for (size_t i = 0; i < len; ++i)
+		printf("%02x", buf[i]);
+}
+
+/* =============================================================================
+ * aes_gpu_test_ecb_key128_singleblock()
+ *
+ * GPU test for AES-128 ECB single-block encryption/decryption.
+ *
+ * Test vectors from FIPS-197. Validates:
+ *   1. Encryption matches expected ciphertext
+ *   2. Round-trip (encrypt then decrypt) recovers plaintext
+ *
+ * Returns 0 on pass, non-zero on failure.
+ * ============================================================================ */
+static int aes_gpu_test_ecb_key128_singleblock()
+{
+	uint8_t ciphertext[16];
+	uint8_t decrypted[16];
+	aes_error_te err;
+	bool overall_ok = true;
+
+	/* Perform GPU AES-128 ECB encryption */
+	err = aes_encrypt_ecb_cuda(plaintext, 16, ciphertext, key128,
+							   AES_KEY_SIZE_128);
+
+	if (err != AES_SUCCESS)
+	{
+		printf("aes_encrypt_ecb_cuda returned error %d\n", (int)err);
+		return 2;
+	}
+
+	/* Verify encryption matches expected cipher */
+	bool enc_ok = (memcmp(ciphertext, expected_cipher, 16) == 0);
+
+	/* Verify decryption returns original plaintext */
+	err = aes_decrypt_ecb_cuda(ciphertext, 16, decrypted, key128,
+							   AES_KEY_SIZE_128);
+
+	if (err != AES_SUCCESS)
+	{
+		printf("aes_decrypt_ecb_cuda returned error %d\n", (int)err);
+		return 3;
+	}
+
+	/* Check decrypted matches original plaintext */
+	bool dec_ok = (memcmp(decrypted, plaintext, 16) == 0);
+
+	if (enc_ok && dec_ok)
+	{
+		printf("[GPU] AES-128 single-block round-trip PASSED\n");
+	}
+	else
+	{
+		overall_ok = false;
+		printf("[GPU] AES-128 single-block test FAILED\n");
+		if (!enc_ok)
+		{
+			printf("  Encryption mismatch:\n");
+			printf("    Expected: ");
+			print_hex(expected_cipher, 16);
+			printf("\n");
+			printf("    Got:      ");
+			print_hex(ciphertext, 16);
+			printf("\n");
+		}
+		if (!dec_ok)
+		{
+			printf("  Decryption mismatch:\n");
+			printf("    Expected: ");
+			print_hex(plaintext, 16);
+			printf("\n");
+			printf("    Got:      ");
+			print_hex(decrypted, 16);
+			printf("\n");
+		}
+	}
+	return overall_ok ? 0 : 1;
+}
+
+/* =============================================================================
+ * aes_gpu_test_ecb_key128_multiblock()
+ *
+ * GPU test for AES-128 ECB multi-block (4 blocks = 64 bytes).
+ * Validates encrypt/decrypt round-trip recovers plaintext.
+ * ============================================================================ */
+static int aes_gpu_test_ecb_key128_multiblock()
+{
+	const size_t blocks = 4;
+	const size_t len = blocks * AES_BLOCK_SIZE;
+	uint8_t multi_plain[64];
+	uint8_t multi_cipher[64];
+	uint8_t multi_decrypted[64];
+	bool overall_ok = true;
+	aes_error_te err;
+
+	/* Fill plaintext with pattern: 0, 1, 2, ..., 63 */
+	for (size_t i = 0; i < len; ++i)
+	{
+		multi_plain[i] = (uint8_t)(i & 0xFF);
+	}
+
+	/* GPU encrypt */
+	err = aes_encrypt_ecb_cuda(multi_plain, len, multi_cipher, key128,
+							   AES_KEY_SIZE_128);
+
+	if (err != AES_SUCCESS)
+	{
+		printf("[GPU] AES-128 multi-block encrypt error %d\n", (int)err);
+		return 8;
+	}
+
+	/* GPU decrypt */
+	err = aes_decrypt_ecb_cuda(multi_cipher, len, multi_decrypted, key128,
+							   AES_KEY_SIZE_128);
+
+	if (err != AES_SUCCESS)
+	{
+		printf("[GPU] AES-128 multi-block decrypt error %d\n", (int)err);
+		return 9;
+	}
+
+	/* Verify round-trip */
+	if (memcmp(multi_plain, multi_decrypted, len) == 0)
+		printf("[GPU] AES-128 multi-block round-trip PASSED\n");
+	else
+	{
+		overall_ok = false;
+		printf("[GPU] AES-128 multi-block round-trip FAILED\n");
+	}
+
+	return overall_ok ? 0 : 1;
+}
+
+/* =============================================================================
+ * aes_gpu_test_ecb_key192_multiblock()
+ *
+ * GPU test for AES-192 ECB multi-block (4 blocks = 64 bytes).
+ * ============================================================================ */
+static int aes_gpu_test_ecb_key192_multiblock()
+{
+	const size_t blocks = 4;
+	const size_t len = blocks * AES_BLOCK_SIZE;
+	uint8_t multi_plain[64];
+	uint8_t multi_cipher[64];
+	uint8_t multi_decrypted[64];
+	bool overall_ok = true;
+	aes_error_te err;
+
+	for (size_t i = 0; i < len; ++i)
+	{
+		multi_plain[i] = (uint8_t)(i & 0xFF);
+	}
+
+	err = aes_encrypt_ecb_cuda(multi_plain, len, multi_cipher, key192,
+							   AES_KEY_SIZE_192);
+
+	if (err != AES_SUCCESS)
+	{
+		printf("[GPU] AES-192 multi-block encrypt error %d\n", (int)err);
+		return 8;
+	}
+
+	err = aes_decrypt_ecb_cuda(multi_cipher, len, multi_decrypted, key192,
+							   AES_KEY_SIZE_192);
+
+	if (err != AES_SUCCESS)
+	{
+		printf("[GPU] AES-192 multi-block decrypt error %d\n", (int)err);
+		return 9;
+	}
+
+	if (memcmp(multi_plain, multi_decrypted, len) == 0)
+		printf("[GPU] AES-192 multi-block round-trip PASSED\n");
+	else
+	{
+		overall_ok = false;
+		printf("[GPU] AES-192 multi-block round-trip FAILED\n");
+	}
+
+	return overall_ok ? 0 : 1;
+}
+
+/* =============================================================================
+ * aes_gpu_test_ecb_key256_multiblock()
+ *
+ * GPU test for AES-256 ECB multi-block (4 blocks = 64 bytes).
+ * ============================================================================ */
+static int aes_gpu_test_ecb_key256_multiblock()
+{
+	const size_t blocks = 4;
+	const size_t len = blocks * AES_BLOCK_SIZE;
+	uint8_t multi_plain[64];
+	uint8_t multi_cipher[64];
+	uint8_t multi_decrypted[64];
+	bool overall_ok = true;
+	aes_error_te err;
+
+	for (size_t i = 0; i < len; ++i)
+	{
+		multi_plain[i] = (uint8_t)(i & 0xFF);
+	}
+
+	err = aes_encrypt_ecb_cuda(multi_plain, len, multi_cipher, key256,
+							   AES_KEY_SIZE_256);
+
+	if (err != AES_SUCCESS)
+	{
+		printf("[GPU] AES-256 multi-block encrypt error %d\n", (int)err);
+		return 8;
+	}
+
+	err = aes_decrypt_ecb_cuda(multi_cipher, len, multi_decrypted, key256,
+							   AES_KEY_SIZE_256);
+
+	if (err != AES_SUCCESS)
+	{
+		printf("[GPU] AES-256 multi-block decrypt error %d\n", (int)err);
+		return 9;
+	}
+
+	if (memcmp(multi_plain, multi_decrypted, len) == 0)
+		printf("[GPU] AES-256 multi-block round-trip PASSED\n");
+	else
+	{
+		overall_ok = false;
+		printf("[GPU] AES-256 multi-block round-trip FAILED\n");
+	}
+
+	return overall_ok ? 0 : 1;
+}
+
+/* =============================================================================
+ * aes_gpu_test_ecb()
+ *
+ * Run all GPU AES ECB tests. Returns 0 if all pass, non-zero if any fail.
+ * ============================================================================ */
+extern "C" int aes_gpu_test_ecb()
+{
+	int status = 0;
+
+	printf("========== GPU AES ECB Tests ==========\n");
+	status += aes_gpu_test_ecb_key128_singleblock();
+	status += aes_gpu_test_ecb_key128_multiblock();
+	status += aes_gpu_test_ecb_key192_multiblock();
+	status += aes_gpu_test_ecb_key256_multiblock();
+	printf("=======================================\n");
+
+	return status;
+}
